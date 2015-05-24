@@ -1,0 +1,20 @@
+[general]
+name=QGeomorf
+description=Geomorphic analysis provider for Processing
+about=Geomorphic parameters describe the geometric and morphological features of a drainage basin and the organization of a river network. These parameters can be useful in several drainage basin management activities.
+category=Plugins
+version=0.0.1
+qgisMinimumVersion=2.6
+
+icon=icons/enea.png
+tags=analysis,processing,geomorphology
+
+author=
+email=
+
+homepage=
+tracker=https://github.com/faunalia/QGeomorf/issues
+repository=https://github.com/faunalia/QGeomorf
+
+experimental=True
+deprecated=False
