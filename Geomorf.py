@@ -4,7 +4,7 @@ import os
 
 from PyQt4.QtGui import QIcon
 
-from qgis.core import QgsGeometry, QgsFeatureRequest
+from qgis.core import QgsMapLayerRegistry, QgsFeatureRequest
 
 from processing.core.GeoAlgorithm import GeoAlgorithm
 from processing.core.GeoAlgorithmExecutionException import \
@@ -63,10 +63,54 @@ class Geomorf(GeoAlgorithm):
                 self.tr('Seems oulet arc is not selected. Select outlet'
                         'arc in the stream network layer and try again.'))
 
-        upNode = outlet.getFeatures().next()
-        upNodeGeom = QgsGeometry(upNode.geometry())
+        # create point layer with nodes. It is really necessary???
+        progress.setInfo(self.tr('Generating network nodes...'))
+        nodes = makePoints(network)
+        QgsMapLayerRegistry.instance().addMapLayer(nodes)
 
         # generate arc adjacency dictionary
-        arcsPerNode = makeDictionary(network)
+        progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
+        self.arcsPerNode = makeDictionary(network)
 
         # node indexing
+        progress.setInfo(self.tr('Indexing nodes...'))
+        self.dwUpNodesId = dict()
+        fid = network.selectedFeaturesIds()[0]
+        self.dwUpNodesId[fid] = [-1, 0]
+        self.nodeId = 0
+
+        f = network.selectedFeatures()[0]
+        node = f.geometry().asPolyline()[-1]
+        self.nodeIndexing(f, node)
+
+        # debugging
+        #~ progress.setInfo(self.tr('assign indices...'))
+        #~ p = network.dataProvider()
+        #~ p.addAttributes([QgsField('myfNode', QVariant.Int), QgsField('mytnode', QVariant.Int)])
+        #~ network.startEditing()
+        #~ network.commitChanges()
+        #~ ifNode = network.fieldNameIndex('myfNode')
+        #~ itNode = network.fieldNameIndex('mytnode')
+        #~ print ifNode, itNode
+        #~ req = QgsFeatureRequest()
+        #~ for fid in self.dwUpNodesId.keys():
+            #~ ids = self.dwUpNodesId[fid]
+            #~ attrs = {ifNode:ids[0], itNode:ids[1]}
+            #~ p.changeAttributeValues({ fid : attrs })
+
+    def nodeIndexing(self, arc, node):
+        if len(self.arcsPerNode[node]) != 1:
+            for f in self.arcsPerNode[node]:
+                if f.id() != arc.id():
+                    polyline = f.geometry().asPolyline()
+                    fNode = polyline[0]
+                    tNode = polyline[-1]
+
+                    self.nodeId += 1
+
+                    self.dwUpNodesId[f.id()] = [self.dwUpNodesId[arc.id()][1], self.nodeId]
+
+                    if node != fNode:
+                        self.nodeIndexing(f, fNode)
+                    else:
+                        self.nodeIndexing(f, tNode)
