@@ -16,7 +16,7 @@ from processing.tools import dataobjects
 from processing.tools import vector
 
 
-pluginPath = os.path.split(os.path.dirname(__file__))[0]
+pluginPath = os.path.dirname(__file__)
 
 
 class Geomorf(GeoAlgorithm):

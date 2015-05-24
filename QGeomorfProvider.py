@@ -10,7 +10,7 @@ from processing.core.ProcessingConfig import Setting, ProcessingConfig
 from QGeomorf.Geomorf import Geomorf
 
 
-pluginPath = os.path.split(os.path.dirname(__file__))[0]
+pluginPath = os.path.dirname(__file__)
 
 
 class QGeomorfProvider(AlgorithmProvider):
