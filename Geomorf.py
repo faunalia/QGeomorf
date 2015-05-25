@@ -83,20 +83,50 @@ class Geomorf(GeoAlgorithm):
         node = f.geometry().asPolyline()[-1]
         self.nodeIndexing(f, node)
 
-        # debugging
-        #~ progress.setInfo(self.tr('assign indices...'))
-        #~ p = network.dataProvider()
-        #~ p.addAttributes([QgsField('myfNode', QVariant.Int), QgsField('mytnode', QVariant.Int)])
-        #~ network.startEditing()
-        #~ network.commitChanges()
-        #~ ifNode = network.fieldNameIndex('myfNode')
-        #~ itNode = network.fieldNameIndex('mytnode')
-        #~ print ifNode, itNode
-        #~ req = QgsFeatureRequest()
-        #~ for fid in self.dwUpNodesId.keys():
-            #~ ids = self.dwUpNodesId[fid]
-            #~ attrs = {ifNode:ids[0], itNode:ids[1]}
-            #~ p.changeAttributeValues({ fid : attrs })
+        # write node indices to attributes
+        progress.setInfo(self.tr('Assign indices...'))
+        p = network.dataProvider()
+        p.addAttributes([QgsField('myfNode', QVariant.Int, '', 10),
+                         QgsField('mytnode', QVariant.Int, '', 10)])
+        network.updateFields()
+        ifNode = network.fieldNameIndex('myfNode')
+        itNode = network.fieldNameIndex('mytnode')
+        req = QgsFeatureRequest()
+        for fid in self.dwUpNodesId.keys():
+            ids = self.dwUpNodesId[fid]
+            attrs = {ifNode:ids[0], itNode:ids[1]}
+            p.changeAttributeValues({fid: attrs})
+
+        # find upstream and downstream arcs
+        arcsPerNodeId = dict()
+        for f in network.getFeatures():
+            if f['myfNode'] not in arcsPerNodeId:
+                arcsPerNodeId[f['myfNode']] = [f.id()]
+            else:
+                arcsPerNodeId[f['myfNode']].append(f.id())
+
+            if f['mytNode'] not in arcsPerNodeId:
+                arcsPerNodeId[f['mytNode']] = [f.id()]
+            else:
+                arcsPerNodeId[f['mytNode']].append(f.id())
+
+        p.addAttributes([QgsField('downArcId', QVariant.Int, '', 10),
+                         QgsField('upArcId', QVariant.String, '', 250)])
+        network.updateFields()
+        idxDown = network.fieldNameIndex('downArcId')
+        idxUp = network.fieldNameIndex('upArcId')
+
+        for f in network.getFeatures():
+            upNodeId = f['mytNode']
+            attrs = {idxDown:f.id()}
+            changes = dict()
+            ids = []
+            for i in arcsPerNodeId[upNodeId]:
+                if i != f.id():
+                    changes[i] = attrs
+                    ids.append(str(i))
+            p.changeAttributeValues(changes)
+            p.changeAttributeValues({f.id():{idxUp:','.join(ids)}})
 
     def nodeIndexing(self, arc, node):
         if len(self.arcsPerNode[node]) != 1:
