@@ -4,7 +4,7 @@ import os
 
 from PyQt4.QtGui import QIcon
 
-from qgis.core import QgsMapLayerRegistry, QgsFeatureRequest
+from qgis.core import NULL, QgsMapLayerRegistry, QgsFeatureRequest
 
 from processing.core.GeoAlgorithm import GeoAlgorithm
 from processing.core.GeoAlgorithmExecutionException import \
@@ -97,6 +97,10 @@ class Geomorf(GeoAlgorithm):
             attrs = {ifNode:ids[0], itNode:ids[1]}
             p.changeAttributeValues({fid: attrs})
 
+        # mapping between upstream node id and feature id.
+        # will be used to sort network table
+        mNetwork = dict()
+
         # find upstream and downstream arcs
         arcsPerNodeId = dict()
         for f in network.getFeatures():
@@ -109,6 +113,9 @@ class Geomorf(GeoAlgorithm):
                 arcsPerNodeId[f['mytNode']] = [f.id()]
             else:
                 arcsPerNodeId[f['mytNode']].append(f.id())
+
+            # also populate feature id - upstream node id mapping
+            mNetwork[f['mytNode']] = f.id()
 
         p.addAttributes([QgsField('downArcId', QVariant.Int, '', 10),
                          QgsField('upArcId', QVariant.String, '', 250)])
@@ -127,6 +134,51 @@ class Geomorf(GeoAlgorithm):
                     ids.append(str(i))
             p.changeAttributeValues(changes)
             p.changeAttributeValues({f.id():{idxUp:','.join(ids)}})
+
+        # calculate length upstream and downstream
+        p.addAttributes([QgsField('length', QVariant.Double, '', 20, 6),
+                         QgsField('lenDown', QVariant.Double, '', 20, 6),
+                         QgsField('lenUp', QVariant.Double, '', 20, 6)])
+        network.updateFields()
+        idxLen = network.fieldNameIndex('length')
+        idxLenUp = network.fieldNameIndex('lenUp')
+        idxLenDown = network.fieldNameIndex('lenDown')
+
+        # lenth of each segment
+        for f in network.getFeatures():
+            p.changeAttributeValues({f.id():{idxLen: f.geometry().length()}})
+
+        # length upstream
+        req = QgsFeatureRequest()
+        for k in sorted(mNetwork.keys(), reverse=True):
+            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
+            arcLen = f['length']
+            upstreamArcs = f['upArcId']
+            if not upstreamArcs:
+                p.changeAttributeValues({f.id():{idxLenUp: arcLen}})
+            else:
+                vals = []
+                for j in upstreamArcs.split(','):
+                    f = network.getFeatures(req.setFilterFid(int(j))).next()
+                    if f['lenUp']:
+                        vals.append(f['lenUp'])
+                    upLen = max(vals) if len(vals) > 0  else 0.0
+                p.changeAttributeValues({mNetwork[k]:{idxLenUp: arcLen + upLen}})
+
+        # length downstream
+        first = True
+        for k in sorted(mNetwork.keys()):
+            print k, mNetwork[k]
+            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
+            if first:
+                p.changeAttributeValues({mNetwork[k]:{idxLenDown: 0}})
+                first = False
+                continue
+
+            arcLen = f['length']
+            downArcId = f['downArcId']
+            f = network.getFeatures(req.setFilterFid(downArcId)).next()
+            p.changeAttributeValues({mNetwork[k]:{idxLenDown: arcLen + f['lenDown']}})
 
     def nodeIndexing(self, arc, node):
         if len(self.arcsPerNode[node]) != 1:
