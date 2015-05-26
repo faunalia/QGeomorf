@@ -18,7 +18,7 @@ class QGeomorfProvider(AlgorithmProvider):
     def __init__(self):
         AlgorithmProvider.__init__(self)
 
-        self.activate = False
+        self.activate = True
 
         self.alglist = [Geomorf()]
         for alg in self.alglist:
