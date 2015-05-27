@@ -4,7 +4,7 @@ import os
 
 from PyQt4.QtGui import QIcon
 
-from qgis.core import NULL, QgsMapLayerRegistry, QgsFeatureRequest
+from qgis.core import NULL, QgsFeatureRequest
 
 from processing.core.GeoAlgorithm import GeoAlgorithm
 from processing.core.GeoAlgorithmExecutionException import \
@@ -28,6 +28,7 @@ class Geomorf(GeoAlgorithm):
     UPSTREAM_NODE = 'UPSTREAM_NODE'
     FIELD_NAME = 'FIELD_NAME'
 
+    ORDER_FREQUENCY = 'ORDER_FREQUENCY'
     BIFURCATION_PARAMS = 'BIFURCATION_PARAMS'
 
     def getIcon(self):
@@ -47,6 +48,8 @@ class Geomorf(GeoAlgorithm):
             ParameterTableField.DATA_TYPE_NUMBER))
 
         self.addOutput(OutputTable(
+            self.ORDER_FREQUENCY, self.tr('Order frequency')))
+        self.addOutput(OutputTable(
             self.BIFURCATION_PARAMS, self.tr('Bifurcation parameters')))
 
     def processAlgorithm(self, progress):
@@ -62,11 +65,6 @@ class Geomorf(GeoAlgorithm):
             raise GeoAlgorithmExecutionException(
                 self.tr('Seems oulet arc is not selected. Select outlet'
                         'arc in the stream network layer and try again.'))
-
-        # create point layer with nodes. It is really necessary???
-        progress.setInfo(self.tr('Generating network nodes...'))
-        nodes = makePoints(network)
-        QgsMapLayerRegistry.instance().addMapLayer(nodes)
 
         # generate arc adjacency dictionary
         progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
@@ -178,7 +176,54 @@ class Geomorf(GeoAlgorithm):
             arcLen = f['length']
             downArcId = f['downArcId']
             f = network.getFeatures(req.setFilterFid(downArcId)).next()
-            p.changeAttributeValues({mNetwork[k]:{idxLenDown: arcLen + f['lenDown']}})
+            lenDown = f['lenDown'] if f['lenDown'] else 0.0
+            p.changeAttributeValues({mNetwork[k]:{idxLenDown: arcLen + lenDown}})
+
+        # prepare for bifurcation ratios calculation
+        # populate order frequency data
+        maxOrder = int(network.maximumValue(network.fieldNameIndex(strahlerField)))
+        orders = dict()
+        bifrat = dict()
+        for i in xrange(maxOrder):
+            orders[i + 1] = dict(N=0.0, Ndu=0.0, Na=0.0)
+            bifrat[i + 1] = dict(Rbu=0.0, Rbdu=0.0, Ru=0.0)
+
+        for k in sorted(mNetwork.keys(), reverse=True):
+            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
+            u = int(f[strahlerField])
+
+            orders[u]['N'] += 1.0
+
+            if f['downArcId']:
+                downId = int(f['downArcId'])
+                f = network.getFeatures(req.setFilterFid(downId)).next()
+                downU = int(f[strahlerField])
+                if downU - u == 1:
+                    orders[u]['Ndu'] += 1.0
+                elif downU - u > 1:
+                    orders[u]['Na'] += 1.0
+
+        writerOrders = self.getOutputFromName(
+            self.ORDER_FREQ).getTableWriter(['order', 'N', 'Ndu', 'Na'])
+
+        writerBifrat = self.getOutputFromName(
+            self.BIFURCATION_PARAMS).getTableWriter(['order', 'Rbu', 'Rbdu', 'Ru'])
+
+        for k, v in orders.iteritems():
+            if k != maxOrder:
+                bifrat[k]['Rbu'] = orders[k]['N'] / orders[k + 1]['N']
+                bifrat[k]['Rbdu'] = orders[k]['Ndu'] / orders[k + 1]['N']
+            else:
+                bifrat[k]['Rbu'] = 0.0
+                bifrat[k]['Rbdu'] = 0.0
+
+            bifrat[k]['Ru'] = bifrat[k]['Rbu'] - bifrat[k]['Rbdu']
+
+            writerOrders.addRecord([k, v['N'], v['Ndu'], v['Na']])
+            writerBifrat.addRecord([k, bifrat[k]['Rbu'], bifrat[k]['Rbdu'], bifrat[k]['Ru']])
+
+        del writerOrders
+        del writerBifrat
 
     def nodeIndexing(self, arc, node):
         if len(self.arcsPerNode[node]) != 1:
