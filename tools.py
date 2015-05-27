@@ -42,7 +42,12 @@ def makePoints(layer):
     return nodes
 
 
-def makeDictionary(layer):
+def arcsAadjacencyDictionary(layer):
+    '''Build arc adjacency dictionary for the input stream network layer.
+
+    This dictionary is a set of adjacency lists compiled for each node in
+    th network.
+    '''
     arcsPerNode = dict()
 
     for f in layer.getFeatures():
@@ -62,11 +67,3 @@ def makeDictionary(layer):
             arcsPerNode[toNode].append(f)
 
     return arcsPerNode
-
-
-def findNode(layer, node):
-    for f in layer.getFeatures():
-        if f.geometry().asPoint() == node:
-            return f.id()
-
-    return -1

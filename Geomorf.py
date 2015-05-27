@@ -60,174 +60,201 @@ class Geomorf(GeoAlgorithm):
 
         strahlerField = self.getParameterValue(self.FIELD_NAME)
 
-        # ensure that outlet arc is selected
+        # Ensure that outlet arc is selected
         if network.selectedFeatureCount() != 1:
             raise GeoAlgorithmExecutionException(
                 self.tr('Seems oulet arc is not selected. Select outlet'
                         'arc in the stream network layer and try again.'))
 
-        # generate arc adjacency dictionary
-        progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
-        self.arcsPerNode = makeDictionary(network)
+        # First add new fields to the network layer
+        networkProvider = network.dataProvider()
+        networkProvider.addAttributes(
+            [QgsField('DownNodeId', QVariant.Int, '', 10),    # downstream node id
+             QgsField('UpNodeId', QVariant.Int, '', 10),      # upstream node id
+             QgsField('DownArcId', QVariant.Int, '', 10),     # downstream arc id
+             QgsField('UpArcId', QVariant.String, '', 250),   # comma separated list of upstream arc ids
+             QgsField('Length', QVariant.Double, '', 20, 6),  # length of the arc
+             QgsField('LengthDown', QVariant.Double, '', 20, 6), # length
+             QgsField('LengthUp', QVariant.Double, '', 20, 6)])  # lenfth
+        network.updateFields()
 
-        # node indexing
+        # Determine indexes of the fields
+        idxStrahler = network.fieldNameIndex(strahlerField)
+        idxDownNodeId = network.fieldNameIndex('DownNodeId')
+        idxUpNodeId = network.fieldNameIndex('UpNodeId')
+        idxDownArcId = network.fieldNameIndex('DownArcId')
+        idxUpArcId = network.fieldNameIndex('UpArcId')
+        idxLength = network.fieldNameIndex('Length')
+        idxLenDown = network.fieldNameIndex('LengthDown')
+        idxLenUp = network.fieldNameIndex('LengthUp')
+
+        # Generate arc adjacency dictionary
+        progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
+        self.arcsPerNode = arcsAadjacencyDictionary(network)
+
+        # Node indexing
         progress.setInfo(self.tr('Indexing nodes...'))
         self.dwUpNodesId = dict()
-        fid = network.selectedFeaturesIds()[0]
-        self.dwUpNodesId[fid] = [-1, 0]
+
+        # Outlet arc and its upstream node
+        outletArc = network.selectedFeatures()[0]
+        upNode = outletArc.geometry().asPolyline()[-1]
+
+        # Dictionary for storing node indexes per arc.
+        # For outlet arc we assign -1 for downstream and 0 for upstream nodes
+        self.dwUpNodesId[outletArc.id()] = [-1, 0]
+        # Current node id
         self.nodeId = 0
 
-        f = network.selectedFeatures()[0]
-        node = f.geometry().asPolyline()[-1]
-        self.nodeIndexing(f, node)
+        # Start recursive node indexing procedure
+        self.nodeIndexing(outletArc, upNode)
 
-        # write node indices to attributes
-        progress.setInfo(self.tr('Assign indices...'))
-        p = network.dataProvider()
-        p.addAttributes([QgsField('myfNode', QVariant.Int, '', 10),
-                         QgsField('mytnode', QVariant.Int, '', 10)])
-        network.updateFields()
-        ifNode = network.fieldNameIndex('myfNode')
-        itNode = network.fieldNameIndex('mytnode')
-        req = QgsFeatureRequest()
-        for fid in self.dwUpNodesId.keys():
-            ids = self.dwUpNodesId[fid]
-            attrs = {ifNode:ids[0], itNode:ids[1]}
-            p.changeAttributeValues({fid: attrs})
+        # Write node indices to the network layer attributes
+        progress.setInfo(self.tr('Assigning indices...'))
+        for i in self.dwUpNodesId.keys():
+            nodeIds = self.dwUpNodesId[i]
+            attrs = {idxDownNodeId:nodeIds[0], idxUpNodeId:nodeIds[1]}
+            networkProvider.changeAttributeValues({i: attrs})
 
-        # mapping between upstream node id and feature id.
-        # will be used to sort network table
-        mNetwork = dict()
+        # Mapping between upstream node id from attribute table and  QGIS
+        # feature id. Will be used to sort features from the network table
+        myNetwork = dict()
 
-        # find upstream and downstream arcs
+        # Find upstream and downstream arc ids for each arc in the stream
+        # network layer. First we generate helper arcPerNodeId dictionary
+        # with node ids as keys and lists of arc ids connected to this node
+        # as values
         arcsPerNodeId = dict()
         for f in network.getFeatures():
-            if f['myfNode'] not in arcsPerNodeId:
-                arcsPerNodeId[f['myfNode']] = [f.id()]
+            if f['UpNodeId'] not in arcsPerNodeId:
+                arcsPerNodeId[f['UpNodeId']] = [f.id()]
             else:
-                arcsPerNodeId[f['myfNode']].append(f.id())
+                arcsPerNodeId[f['UpNodeId']].append(f.id())
 
-            if f['mytNode'] not in arcsPerNodeId:
-                arcsPerNodeId[f['mytNode']] = [f.id()]
+            if f['DownNodeId'] not in arcsPerNodeId:
+                arcsPerNodeId[f['DownNodeId']] = [f.id()]
             else:
-                arcsPerNodeId[f['mytNode']].append(f.id())
+                arcsPerNodeId[f['DownNodeId']].append(f.id())
 
-            # also populate feature id - upstream node id mapping
-            mNetwork[f['mytNode']] = f.id()
+            # Also populate mapping between upstream node id and feature id
+            myNetwork[f['UpNodeId']] = f.id()
 
-        p.addAttributes([QgsField('downArcId', QVariant.Int, '', 10),
-                         QgsField('upArcId', QVariant.String, '', 250)])
-        network.updateFields()
-        idxDown = network.fieldNameIndex('downArcId')
-        idxUp = network.fieldNameIndex('upArcId')
-
+        # Populating upstream and downstream arc ids
+        # Iterate over all arcs in the stream network layer
         for f in network.getFeatures():
-            upNodeId = f['mytNode']
-            attrs = {idxDown:f.id()}
+            fid = f.id()
+            # Determine upstream node id
+            upNodeId = f['UpNodeId']
+
+            attrs = {idxDownArcId:fid}
             changes = dict()
             ids = []
+
+            # Iterate over all arcs connected to the upstream node with
+            # given id, skipping current arc
             for i in arcsPerNodeId[upNodeId]:
-                if i != f.id():
+                if i != fid:
+                    # Modify DownArcId
                     changes[i] = attrs
+                    # Collect ids of the arcs located upstream
                     ids.append(str(i))
-            p.changeAttributeValues(changes)
-            p.changeAttributeValues({f.id():{idxUp:','.join(ids)}})
 
-        # calculate length upstream and downstream
-        p.addAttributes([QgsField('length', QVariant.Double, '', 20, 6),
-                         QgsField('lenDown', QVariant.Double, '', 20, 6),
-                         QgsField('lenUp', QVariant.Double, '', 20, 6)])
-        network.updateFields()
-        idxLen = network.fieldNameIndex('length')
-        idxLenUp = network.fieldNameIndex('lenUp')
-        idxLenDown = network.fieldNameIndex('lenDown')
+            networkProvider.changeAttributeValues(changes)
+            networkProvider.changeAttributeValues({fid:{idxUpArcId:','.join(ids)}})
 
-        # lenth of each segment
-        for f in network.getFeatures():
-            p.changeAttributeValues({f.id():{idxLen: f.geometry().length()}})
+            # Also calculate length of the current arc
+            networkProvider.changeAttributeValues({fid:{idxLength:f.geometry().length()}})
 
-        # length upstream
+        # Calculate length upstream for arcs
         req = QgsFeatureRequest()
-        for k in sorted(mNetwork.keys(), reverse=True):
-            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
-            arcLen = f['length']
-            upstreamArcs = f['upArcId']
+        # Iterate over upsteram node ids starting from the last ones
+        # which represents source arcs
+        for nodeId in sorted(myNetwork.keys(), reverse=True):
+            f = network.getFeatures(req.setFilterFid(myNetwork[nodeId])).next()
+            arcLen = f['Length']
+            upstreamArcs = f['UpArcId']
             if not upstreamArcs:
-                p.changeAttributeValues({f.id():{idxLenUp: arcLen}})
+                networkProvider.changeAttributeValues({f.id():{idxLenUp: arcLen}})
             else:
-                vals = []
-                for j in upstreamArcs.split(','):
-                    f = network.getFeatures(req.setFilterFid(int(j))).next()
-                    if f['lenUp']:
-                        vals.append(f['lenUp'])
-                    upLen = max(vals) if len(vals) > 0  else 0.0
-                p.changeAttributeValues({mNetwork[k]:{idxLenUp: arcLen + upLen}})
+                length = []
+                for i in upstreamArcs.split(','):
+                    f = network.getFeatures(req.setFilterFid(int(i))).next()
+                    if f['LengthUp']:
+                        length.append(f['LengthUp'])
+                    upLen = max(length) if len(length) > 0  else 0.0
+                networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenUp:arcLen + upLen}})
 
-        # length downstream
+        # Calculate length downstream for arcs
         first = True
-        for k in sorted(mNetwork.keys()):
-            print k, mNetwork[k]
-            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
+        # Iterate over upsteram node ids starting from the first one
+        # which represents downstream node of the outlet arc
+        for nodeId in sorted(myNetwork.keys()):
+            f = network.getFeatures(req.setFilterFid(myNetwork[nodeId])).next()
+            # for outlet arc downstream length set to zero
             if first:
-                p.changeAttributeValues({mNetwork[k]:{idxLenDown: 0}})
+                networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenDown:0.0}})
                 first = False
                 continue
 
-            arcLen = f['length']
-            downArcId = f['downArcId']
+            arcLen = f['Length']
+            downArcId = f['DownArcId']
             f = network.getFeatures(req.setFilterFid(downArcId)).next()
-            lenDown = f['lenDown'] if f['lenDown'] else 0.0
-            p.changeAttributeValues({mNetwork[k]:{idxLenDown: arcLen + lenDown}})
+            lenDown = f['LengthDown'] if f['LengthDown'] else 0.0
+            networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenDown: arcLen + lenDown}})
 
-        # prepare for bifurcation ratios calculation
-        # populate order frequency data
-        maxOrder = int(network.maximumValue(network.fieldNameIndex(strahlerField)))
-        orders = dict()
-        bifrat = dict()
-        for i in xrange(maxOrder):
-            orders[i + 1] = dict(N=0.0, Ndu=0.0, Na=0.0)
-            bifrat[i + 1] = dict(Rbu=0.0, Rbdu=0.0, Ru=0.0)
+        # Calculate order frequency
+        maxOrder = int(network.maximumValue(idxStrahler))
+        ordersFrequency = dict()
+        bifRatios = dict()
+        # Initialize dictionaries
+        for i in xrange(1, maxOrder + 1):
+            ordersFrequency[i] = dict(N=0.0, Ndu=0.0, Na=0.0)
+            bifRatios[i] = dict(Rbu=0.0, Rbdu=0.0, Ru=0.0)
 
-        for k in sorted(mNetwork.keys(), reverse=True):
-            f = network.getFeatures(req.setFilterFid(mNetwork[k])).next()
+        # Iterate over upsteram node ids starting from the last ones
+        # which represents source arcs
+        for nodeId in sorted(myNetwork.keys(), reverse=True):
+            f = network.getFeatures(req.setFilterFid(myNetwork[nodeId])).next()
             u = int(f[strahlerField])
 
-            orders[u]['N'] += 1.0
+            ordersFrequency[u]['N'] += 1.0
 
-            if f['downArcId']:
-                downId = int(f['downArcId'])
-                f = network.getFeatures(req.setFilterFid(downId)).next()
+            if f['DownArcId']:
+                downArcId = f['downArcId']
+                f = network.getFeatures(req.setFilterFid(downArcId)).next()
                 downU = int(f[strahlerField])
                 if downU - u == 1:
-                    orders[u]['Ndu'] += 1.0
+                    ordersFrequency[u]['Ndu'] += 1.0
                 elif downU - u > 1:
-                    orders[u]['Na'] += 1.0
+                    ordersFrequency[u]['Na'] += 1.0
 
         writerOrders = self.getOutputFromName(
-            self.ORDER_FREQ).getTableWriter(['order', 'N', 'Ndu', 'Na'])
+            self.ORDER_FREQUENCY).getTableWriter(['order', 'N', 'Ndu', 'Na'])
 
         writerBifrat = self.getOutputFromName(
             self.BIFURCATION_PARAMS).getTableWriter(['order', 'Rbu', 'Rbdu', 'Ru'])
 
-        for k, v in orders.iteritems():
+        # Calculate bifurcation parameters
+        for k, v in ordersFrequency.iteritems():
             if k != maxOrder:
-                bifrat[k]['Rbu'] = orders[k]['N'] / orders[k + 1]['N']
-                bifrat[k]['Rbdu'] = orders[k]['Ndu'] / orders[k + 1]['N']
+                bifRatios[k]['Rbu'] = ordersFrequency[k]['N'] / ordersFrequency[k + 1]['N']
+                bifRatios[k]['Rbdu'] = ordersFrequency[k]['Ndu'] / ordersFrequency[k + 1]['N']
             else:
-                bifrat[k]['Rbu'] = 0.0
-                bifrat[k]['Rbdu'] = 0.0
+                bifRatios[k]['Rbu'] = 0.0
+                bifRatios[k]['Rbdu'] = 0.0
 
-            bifrat[k]['Ru'] = bifrat[k]['Rbu'] - bifrat[k]['Rbdu']
+            bifRatios[k]['Ru'] = bifRatios[k]['Rbu'] - bifRatios[k]['Rbdu']
 
             writerOrders.addRecord([k, v['N'], v['Ndu'], v['Na']])
-            writerBifrat.addRecord([k, bifrat[k]['Rbu'], bifrat[k]['Rbdu'], bifrat[k]['Ru']])
+            writerBifrat.addRecord([k, bifRatios[k]['Rbu'], bifRatios[k]['Rbdu'], bifRatios[k]['Ru']])
 
         del writerOrders
         del writerBifrat
 
-    def nodeIndexing(self, arc, node):
-        if len(self.arcsPerNode[node]) != 1:
-            for f in self.arcsPerNode[node]:
+    def nodeIndexing(self, arc, upNode):
+        if len(self.arcsPerNode[upNode]) != 1:
+            # iterate over arcs connected to given node
+            for f in self.arcsPerNode[upNode]:
                 if f.id() != arc.id():
                     polyline = f.geometry().asPolyline()
                     fNode = polyline[0]
@@ -237,7 +264,7 @@ class Geomorf(GeoAlgorithm):
 
                     self.dwUpNodesId[f.id()] = [self.dwUpNodesId[arc.id()][1], self.nodeId]
 
-                    if node != fNode:
+                    if upNode != fNode:
                         self.nodeIndexing(f, fNode)
                     else:
                         self.nodeIndexing(f, tNode)
