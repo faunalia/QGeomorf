@@ -69,17 +69,19 @@ class Geomorf(GeoAlgorithm):
         # First add new fields to the network layer
         networkProvider = network.dataProvider()
         networkProvider.addAttributes(
-            [QgsField('DownNodeId', QVariant.Int, '', 10),    # downstream node id
+            [QgsField('StrahOrder', QVariant.Int, '', 10),    # Strahler order
+             QgsField('DownNodeId', QVariant.Int, '', 10),    # downstream node id
              QgsField('UpNodeId', QVariant.Int, '', 10),      # upstream node id
              QgsField('DownArcId', QVariant.Int, '', 10),     # downstream arc id
              QgsField('UpArcId', QVariant.String, '', 250),   # comma separated list of upstream arc ids
              QgsField('Length', QVariant.Double, '', 20, 6),  # length of the arc
-             QgsField('LengthDown', QVariant.Double, '', 20, 6), # length
-             QgsField('LengthUp', QVariant.Double, '', 20, 6)])  # lenfth
+             QgsField('LengthDown', QVariant.Double, '', 20, 6), # length downstream
+             QgsField('LengthUp', QVariant.Double, '', 20, 6)])  # length upstream
         network.updateFields()
 
         # Determine indexes of the fields
         idxStrahler = network.fieldNameIndex(strahlerField)
+        idxMyStrahler = network.fieldNameIndex('StrahOrder')
         idxDownNodeId = network.fieldNameIndex('DownNodeId')
         idxUpNodeId = network.fieldNameIndex('UpNodeId')
         idxDownArcId = network.fieldNameIndex('DownArcId')
@@ -166,6 +168,7 @@ class Geomorf(GeoAlgorithm):
             networkProvider.changeAttributeValues({fid:{idxLength:f.geometry().length()}})
 
         # Calculate length upstream for arcs
+        progress.setInfo(self.tr('Calculating length upstream...'))
         req = QgsFeatureRequest()
         # Iterate over upsteram node ids starting from the last ones
         # which represents source arcs
@@ -185,6 +188,7 @@ class Geomorf(GeoAlgorithm):
                 networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenUp:arcLen + upLen}})
 
         # Calculate length downstream for arcs
+        progress.setInfo(self.tr('Calculating length downstream...'))
         first = True
         # Iterate over upsteram node ids starting from the first one
         # which represents downstream node of the outlet arc
@@ -202,7 +206,31 @@ class Geomorf(GeoAlgorithm):
             lenDown = f['LengthDown'] if f['LengthDown'] else 0.0
             networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenDown: arcLen + lenDown}})
 
+        # calculate Strahler orders
+        progress.setInfo(self.tr('Calculating Strahler orders...'))
+        # Iterate over upsteram node ids starting from the last ones
+        # which represents source arcs
+        for nodeId in sorted(myNetwork.keys(), reverse=True):
+            f = network.getFeatures(req.setFilterFid(myNetwork[nodeId])).next()
+            fid = f.id()
+            upstreamArcs = f['UpArcId']
+            if not upstreamArcs:
+                networkProvider.changeAttributeValues({fid:{idxMyStrahler: 1}})
+            else:
+                orders = []
+                for i in upstreamArcs.split(','):
+                    f = network.getFeatures(req.setFilterFid(int(i))).next()
+                    orders.append(f['StrahOrder'])
+
+                orders.sort()
+                if len(orders) >= 2:
+                    order = max([orders[0], orders[1] + 1])
+                else:
+                    order = max([orders[0], 1])
+                networkProvider.changeAttributeValues({fid:{idxMyStrahler: order}})
+
         # Calculate order frequency
+        progress.setInfo(self.tr('Calculating order frequency...'))
         maxOrder = int(network.maximumValue(idxStrahler))
         ordersFrequency = dict()
         bifRatios = dict()
@@ -235,6 +263,7 @@ class Geomorf(GeoAlgorithm):
             self.BIFURCATION_PARAMS).getTableWriter(['order', 'Rbu', 'Rbdu', 'Ru'])
 
         # Calculate bifurcation parameters
+        progress.setInfo(self.tr('Calculating bifurcation parameters...'))
         for k, v in ordersFrequency.iteritems():
             if k != maxOrder:
                 bifRatios[k]['Rbu'] = ordersFrequency[k]['N'] / ordersFrequency[k + 1]['N']
