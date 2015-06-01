@@ -26,7 +26,7 @@ pluginPath = os.path.dirname(__file__)
 class Geomorf(GeoAlgorithm):
     NETWORK_LAYER = 'NETWORK_LAYER'
     UPSTREAM_NODE = 'UPSTREAM_NODE'
-    #FIELD_NAME = 'FIELD_NAME'
+    FIELD_NAME = 'FIELD_NAME'
 
     ORDER_FREQUENCY = 'ORDER_FREQUENCY'
     BIFURCATION_PARAMS = 'BIFURCATION_PARAMS'
@@ -43,9 +43,9 @@ class Geomorf(GeoAlgorithm):
         self.addParameter(ParameterVector(self.UPSTREAM_NODE,
             self.tr('Upstream node of the outlet arc'),
             [ParameterVector.VECTOR_TYPE_POINT]))
-        #self.addParameter(ParameterTableField(self.FIELD_NAME,
-        #    self.tr('Strahler order field'), self.NETWORK_LAYER,
-        #    ParameterTableField.DATA_TYPE_NUMBER))
+        self.addParameter(ParameterTableField(self.FIELD_NAME,
+            self.tr('Strahler order field'), self.NETWORK_LAYER,
+            ParameterTableField.DATA_TYPE_NUMBER))
 
         self.addOutput(OutputTable(
             self.ORDER_FREQUENCY, self.tr('Order frequency')))
@@ -58,7 +58,7 @@ class Geomorf(GeoAlgorithm):
         outlet = dataobjects.getObjectFromUri(
             self.getParameterValue(self.UPSTREAM_NODE))
 
-        #strahlerField = self.getParameterValue(self.FIELD_NAME)
+        strahlerField = self.getParameterValue(self.FIELD_NAME)
 
         # Ensure that outlet arc is selected
         if network.selectedFeatureCount() != 1:
@@ -80,7 +80,7 @@ class Geomorf(GeoAlgorithm):
         network.updateFields()
 
         # Determine indexes of the fields
-        #idxStrahler = network.fieldNameIndex(strahlerField)
+        idxStrahler = network.fieldNameIndex(strahlerField)
         idxMyStrahler = network.fieldNameIndex('StrahOrder')
         idxDownNodeId = network.fieldNameIndex('DownNodeId')
         idxUpNodeId = network.fieldNameIndex('UpNodeId')
@@ -244,30 +244,28 @@ class Geomorf(GeoAlgorithm):
             req.setFilterExpression('"StrahOrder" = %s' % i)
             #req.setFilterExpression('"%s" = %s' % (strahlerField, i))
             for f in network.getFeatures(req):
-                order = int(f[strahlerField])
-                upstreamArcs = f['UpArcId'] if f['UpArcId'] else []
+                #order = int(f[strahlerField])
+                order = int(f['StrahOrder'])
+                upstreamArcs = f['UpArcId'].split(',') if f['UpArcId'] else []
                 if len(upstreamArcs) == 0:
                     ordersFrequency[order]['N'] += 1.0
 
-                if len(upstreamArcs) > 0:
+                if len(upstreamArcs) > 1:
                     orders = []
-                    for j in upstreamArcs.split(','):
+                    for j in upstreamArcs:
                         f = network.getFeatures(req.setFilterFid(int(j))).next()
-                        orders.append(int(f[strahlerField]))
+                        #orders.append(int(f[strahlerField]))
+                        orders.append(int(f['StrahOrder']))
 
-                    orders.sort(reverse=True)
-                    tmp = [orders[0]]
-                    d = orders[0]
-                    if len(orders) > 1:
-                        tmp.append(orders[1])
-                        d = orders[0] - orders[1]
-                    if d == 0:
+                    #orders.sort(reverse=True)
+                    diff = orders[0] - orders[1]
+                    minOrder = min([orders[0], orders[1]])
+                    if diff == 0:
                         ordersFrequency[order]['N'] += 1.0
-                    m = min(tmp)
-                    if d == 1:
-                        ordersFrequency[m]['Ndu'] += 1.0
-                    if d > 0:
-                        ordersFrequency[m]['Na'] += 1.0
+                    if diff == 1:
+                        ordersFrequency[minOrder]['Ndu'] += 1.0
+                    if diff > 0:
+                        ordersFrequency[minOrder]['Na'] += 1.0
 
         writerOrders = self.getOutputFromName(
             self.ORDER_FREQUENCY).getTableWriter(['order', 'N', 'NDU', 'NA'])
