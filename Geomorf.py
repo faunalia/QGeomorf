@@ -26,7 +26,6 @@ pluginPath = os.path.dirname(__file__)
 class Geomorf(GeoAlgorithm):
     NETWORK_LAYER = 'NETWORK_LAYER'
     UPSTREAM_NODE = 'UPSTREAM_NODE'
-    FIELD_NAME = 'FIELD_NAME'
 
     ORDER_FREQUENCY = 'ORDER_FREQUENCY'
     BIFURCATION_PARAMS = 'BIFURCATION_PARAMS'
@@ -43,9 +42,6 @@ class Geomorf(GeoAlgorithm):
         self.addParameter(ParameterVector(self.UPSTREAM_NODE,
             self.tr('Upstream node of the outlet arc'),
             [ParameterVector.VECTOR_TYPE_POINT]))
-        self.addParameter(ParameterTableField(self.FIELD_NAME,
-            self.tr('Strahler order field'), self.NETWORK_LAYER,
-            ParameterTableField.DATA_TYPE_NUMBER))
 
         self.addOutput(OutputTable(
             self.ORDER_FREQUENCY, self.tr('Order frequency')))
@@ -57,8 +53,6 @@ class Geomorf(GeoAlgorithm):
             self.getParameterValue(self.NETWORK_LAYER))
         outlet = dataobjects.getObjectFromUri(
             self.getParameterValue(self.UPSTREAM_NODE))
-
-        strahlerField = self.getParameterValue(self.FIELD_NAME)
 
         # Ensure that outlet arc is selected
         if network.selectedFeatureCount() != 1:
@@ -80,8 +74,7 @@ class Geomorf(GeoAlgorithm):
         network.updateFields()
 
         # Determine indexes of the fields
-        idxStrahler = network.fieldNameIndex(strahlerField)
-        idxMyStrahler = network.fieldNameIndex('StrahOrder')
+        idxStrahler = network.fieldNameIndex('StrahOrder')
         idxDownNodeId = network.fieldNameIndex('DownNodeId')
         idxUpNodeId = network.fieldNameIndex('UpNodeId')
         idxDownArcId = network.fieldNameIndex('DownArcId')
@@ -215,7 +208,7 @@ class Geomorf(GeoAlgorithm):
             fid = f.id()
             upstreamArcs = f['UpArcId']
             if not upstreamArcs:
-                networkProvider.changeAttributeValues({fid:{idxMyStrahler: 1}})
+                networkProvider.changeAttributeValues({fid:{idxStrahler: 1}})
             else:
                 orders = []
                 for i in upstreamArcs.split(','):
@@ -227,12 +220,11 @@ class Geomorf(GeoAlgorithm):
                     order = max([orders[0], orders[1] + 1])
                 else:
                     order = max([orders[0], 1])
-                networkProvider.changeAttributeValues({fid:{idxMyStrahler: order}})
+                networkProvider.changeAttributeValues({fid:{idxStrahler: order}})
 
         # Calculate order frequency
         progress.setInfo(self.tr('Calculating order frequency...'))
-        #maxOrder = int(network.maximumValue(idxStrahler))
-        maxOrder = int(network.maximumValue(idxMyStrahler))
+        maxOrder = int(network.maximumValue(idxStrahler))
         ordersFrequency = dict()
         bifRatios = dict()
         # Initialize dictionaries
@@ -242,9 +234,7 @@ class Geomorf(GeoAlgorithm):
 
         for i in xrange(1, maxOrder + 1):
             req.setFilterExpression('"StrahOrder" = %s' % i)
-            #req.setFilterExpression('"%s" = %s' % (strahlerField, i))
             for f in network.getFeatures(req):
-                #order = int(f[strahlerField])
                 order = int(f['StrahOrder'])
                 upstreamArcs = f['UpArcId'].split(',') if f['UpArcId'] else []
                 if len(upstreamArcs) == 0:
@@ -254,7 +244,6 @@ class Geomorf(GeoAlgorithm):
                     orders = []
                     for j in upstreamArcs:
                         f = network.getFeatures(req.setFilterFid(int(j))).next()
-                        #orders.append(int(f[strahlerField]))
                         orders.append(int(f['StrahOrder']))
 
                     #orders.sort(reverse=True)
