@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#!/usr/bin/env python
 
 import os
 import sys
@@ -35,7 +36,6 @@ def addFields(layerPath):
     '''
     layer = QgsVectorLayer(layerPath, 'network', 'ogr')
     if not layer.isValid():
-        print 'Can not create layer.'
         return False
 
     provider = layer.dataProvider()
@@ -60,7 +60,6 @@ def arcsAadjacencyDictionary(layerPath):
     '''
     layer = QgsVectorLayer(layerPath, 'network', 'ogr')
     if not layer.isValid():
-        print 'Can not create layer.'
         return False
 
 
@@ -108,23 +107,22 @@ def nodeIndexing(arc, upNode):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print 'Incorrect number of arguments.'
+    if len(sys.argv) != 5:
         sys.exit(0)
 
     layerPath = sys.argv[1]
     outletArcId = int(sys.argv[2])
+    segFrPath = sys.argv[3]
+    bifratPath = sys.argv[4]
 
     QgsApplication.setPrefixPath(qgis_prefix, True)
     QgsApplication.initQgis()
 
     if not addFields(layerPath):
-        print 'Failed to add new fields to layer.'
         sys.exit(0)
 
     layer = QgsVectorLayer(layerPath, 'network', 'ogr')
     if not layer.isValid():
-        print 'Can not create layer.'
         sys.exit(0)
 
     # Determine indexes of the fields
@@ -307,8 +305,8 @@ if __name__ == '__main__':
                     if diff > 1:
                         ordersFrequency[upOrder]['Na'] += 1.0
 
-    segFr = open('segfr.csv', 'wb')
-    bifRat = open('bifrat.csv', 'wb')
+    segFr = open(segFrPath, 'wb')
+    bifRat = open(bifratPath, 'wb')
     segFrWriter = csv.writer(segFr)
     segFrWriter.writerow(['order', 'N', 'NDU', 'NA'])
     bifRatWriter = csv.writer(bifRat)
@@ -331,4 +329,4 @@ if __name__ == '__main__':
     segFr.close()
     bifRat.close()
 
-    QgsApplication.exitQgis()
+    #QgsApplication.exitQgis()
