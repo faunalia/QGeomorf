@@ -25,7 +25,6 @@ pluginPath = os.path.dirname(__file__)
 
 class Geomorf(GeoAlgorithm):
     NETWORK_LAYER = 'NETWORK_LAYER'
-    UPSTREAM_NODE = 'UPSTREAM_NODE'
 
     ORDER_FREQUENCY = 'ORDER_FREQUENCY'
     BIFURCATION_PARAMS = 'BIFURCATION_PARAMS'
@@ -39,9 +38,6 @@ class Geomorf(GeoAlgorithm):
 
         self.addParameter(ParameterVector(self.NETWORK_LAYER,
             self.tr('Stream network'), [ParameterVector.VECTOR_TYPE_LINE]))
-        self.addParameter(ParameterVector(self.UPSTREAM_NODE,
-            self.tr('Upstream node of the outlet arc'),
-            [ParameterVector.VECTOR_TYPE_POINT]))
 
         self.addOutput(OutputTable(
             self.ORDER_FREQUENCY, self.tr('Order frequency')))
@@ -51,8 +47,6 @@ class Geomorf(GeoAlgorithm):
     def processAlgorithm(self, progress):
         network = dataobjects.getObjectFromUri(
             self.getParameterValue(self.NETWORK_LAYER))
-        outlet = dataobjects.getObjectFromUri(
-            self.getParameterValue(self.UPSTREAM_NODE))
 
         # Ensure that outlet arc is selected
         if network.selectedFeatureCount() != 1:
@@ -261,30 +255,6 @@ class Geomorf(GeoAlgorithm):
                             ordersFrequency[upOrder]['Ndu'] += 1.0
                         if diff > 1:
                             ordersFrequency[upOrder]['Na'] += 1.0
-
-        #~ for i in xrange(1, maxOrder + 1):
-            #~ req.setFilterExpression('"StrahOrder" = %s' % i)
-            #~ for f in network.getFeatures(req):
-                #~ order = int(f['StrahOrder'])
-                #~ upstreamArcs = f['UpArcId'].split(',') if f['UpArcId'] else []
-                #~ if len(upstreamArcs) == 0:
-                    #~ ordersFrequency[order]['N'] += 1.0
-#~
-                #~ if len(upstreamArcs) > 1:
-                    #~ orders = []
-                    #~ for j in upstreamArcs:
-                        #~ f = network.getFeatures(req.setFilterFid(int(j))).next()
-                        #~ orders.append(int(f['StrahOrder']))
-#~
-                    #~ #orders.sort(reverse=True)
-                    #~ diff = orders[0] - orders[1]
-                    #~ minOrder = min([orders[0], orders[1]])
-                    #~ if diff == 0:
-                        #~ ordersFrequency[order]['N'] += 1.0
-                    #~ if diff == 1:
-                        #~ ordersFrequency[minOrder]['Ndu'] += 1.0
-                    #~ if diff > 0:
-                        #~ ordersFrequency[minOrder]['Na'] += 1.0
 
         writerOrders = self.getOutputFromName(
             self.ORDER_FREQUENCY).getTableWriter(['order', 'N', 'NDU', 'NA'])
