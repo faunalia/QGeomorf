@@ -26,7 +26,6 @@ pluginPath = os.path.dirname(__file__)
 class Geomorf(GeoAlgorithm):
     NETWORK_LAYER = 'NETWORK_LAYER'
     UPSTREAM_NODE = 'UPSTREAM_NODE'
-    FIELD_NAME = 'FIELD_NAME'
 
     ORDER_FREQUENCY = 'ORDER_FREQUENCY'
     BIFURCATION_PARAMS = 'BIFURCATION_PARAMS'
@@ -43,9 +42,6 @@ class Geomorf(GeoAlgorithm):
         self.addParameter(ParameterVector(self.UPSTREAM_NODE,
             self.tr('Upstream node of the outlet arc'),
             [ParameterVector.VECTOR_TYPE_POINT]))
-        self.addParameter(ParameterTableField(self.FIELD_NAME,
-            self.tr('Strahler order field'), self.NETWORK_LAYER,
-            ParameterTableField.DATA_TYPE_NUMBER))
 
         self.addOutput(OutputTable(
             self.ORDER_FREQUENCY, self.tr('Order frequency')))
@@ -57,8 +53,6 @@ class Geomorf(GeoAlgorithm):
             self.getParameterValue(self.NETWORK_LAYER))
         outlet = dataobjects.getObjectFromUri(
             self.getParameterValue(self.UPSTREAM_NODE))
-
-        strahlerField = self.getParameterValue(self.FIELD_NAME)
 
         # Ensure that outlet arc is selected
         if network.selectedFeatureCount() != 1:
@@ -80,8 +74,7 @@ class Geomorf(GeoAlgorithm):
         network.updateFields()
 
         # Determine indexes of the fields
-        idxStrahler = network.fieldNameIndex(strahlerField)
-        idxMyStrahler = network.fieldNameIndex('StrahOrder')
+        idxStrahler = network.fieldNameIndex('StrahOrder')
         idxDownNodeId = network.fieldNameIndex('DownNodeId')
         idxUpNodeId = network.fieldNameIndex('UpNodeId')
         idxDownArcId = network.fieldNameIndex('DownArcId')
@@ -91,10 +84,12 @@ class Geomorf(GeoAlgorithm):
         idxLenUp = network.fieldNameIndex('LengthUp')
 
         # Generate arc adjacency dictionary
+        # Algorithm at pages 79-80 "Automated AGQ4Vector Watershed.pdf"
         progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
         self.arcsPerNode = arcsAadjacencyDictionary(network)
 
         # Node indexing
+        # Algorithm at pages 80-81 "Automated AGQ4Vector Watershed.pdf"
         progress.setInfo(self.tr('Indexing nodes...'))
         self.dwUpNodesId = dict()
 
@@ -126,6 +121,7 @@ class Geomorf(GeoAlgorithm):
         # network layer. First we generate helper arcPerNodeId dictionary
         # with node ids as keys and lists of arc ids connected to this node
         # as values
+        # Algorithm at pages 55-56 "Automated AGQ4Vector Watershed.pdf"
         arcsPerNodeId = dict()
         for f in network.getFeatures():
             if f['UpNodeId'] not in arcsPerNodeId:
@@ -168,6 +164,7 @@ class Geomorf(GeoAlgorithm):
             networkProvider.changeAttributeValues({fid:{idxLength:f.geometry().length()}})
 
         # Calculate length upstream for arcs
+        # Algorithm at pages 61-62 "Automated AGQ4Vector Watershed.pdf"
         progress.setInfo(self.tr('Calculating length upstream...'))
         req = QgsFeatureRequest()
         # Iterate over upsteram node ids starting from the last ones
@@ -188,6 +185,7 @@ class Geomorf(GeoAlgorithm):
                 networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenUp:arcLen + upLen}})
 
         # Calculate length downstream for arcs
+        # Algorithm at pages 62-63 "Automated AGQ4Vector Watershed.pdf"
         progress.setInfo(self.tr('Calculating length downstream...'))
         first = True
         # Iterate over upsteram node ids starting from the first one
@@ -207,6 +205,7 @@ class Geomorf(GeoAlgorithm):
             networkProvider.changeAttributeValues({myNetwork[nodeId]:{idxLenDown: arcLen + lenDown}})
 
         # calculate Strahler orders
+        # Algorithm at pages 65-66 "Automated AGQ4Vector Watershed.pdf"
         progress.setInfo(self.tr('Calculating Strahler orders...'))
         # Iterate over upsteram node ids starting from the last ones
         # which represents source arcs
@@ -214,27 +213,32 @@ class Geomorf(GeoAlgorithm):
             f = network.getFeatures(req.setFilterFid(myNetwork[nodeId])).next()
             fid = f.id()
             upstreamArcs = f['UpArcId']
-            if not upstreamArcs:
-                networkProvider.changeAttributeValues({fid:{idxMyStrahler: 1}})
+            if upstreamArcs == NULL:
+                networkProvider.changeAttributeValues({fid:{idxStrahler: 1}})
             else:
                 orders = []
                 for i in upstreamArcs.split(','):
                     f = network.getFeatures(req.setFilterFid(int(i))).next()
-                    orders.append(f['StrahOrder'])
-
+                    if f['StrahOrder']:
+                        orders.append(f['StrahOrder'])
                 orders.sort(reverse=True)
-                if len(orders) >= 2:
-                    order = max([orders[0], orders[1] + 1])
-                else:
-                    order = max([orders[0], 1])
-                networkProvider.changeAttributeValues({fid:{idxMyStrahler: order}})
+                if len(orders) == 1:
+                    order = orders[0]
+                elif len(orders) >= 2:
+                    diff = orders[0] - orders[1]
+                    if diff == 0:
+                        order = orders[0] + 1
+                    else:
+                        order = max([orders[0], orders[1]])
+                networkProvider.changeAttributeValues({fid:{idxStrahler: order}})
 
         # Calculate order frequency
         progress.setInfo(self.tr('Calculating order frequency...'))
-        #maxOrder = int(network.maximumValue(idxStrahler))
-        maxOrder = int(network.maximumValue(idxMyStrahler))
+
+        maxOrder = int(network.maximumValue(idxStrahler))
         ordersFrequency = dict()
         bifRatios = dict()
+
         # Initialize dictionaries
         for i in xrange(1, maxOrder + 1):
             ordersFrequency[i] = dict(N=0.0, Ndu=0.0, Na=0.0)
@@ -242,30 +246,45 @@ class Geomorf(GeoAlgorithm):
 
         for i in xrange(1, maxOrder + 1):
             req.setFilterExpression('"StrahOrder" = %s' % i)
-            #req.setFilterExpression('"%s" = %s' % (strahlerField, i))
             for f in network.getFeatures(req):
-                #order = int(f[strahlerField])
                 order = int(f['StrahOrder'])
                 upstreamArcs = f['UpArcId'].split(',') if f['UpArcId'] else []
                 if len(upstreamArcs) == 0:
+                    ordersFrequency[i]['N'] += 1.0
+                elif len(upstreamArcs) > 1:
                     ordersFrequency[order]['N'] += 1.0
-
-                if len(upstreamArcs) > 1:
-                    orders = []
                     for j in upstreamArcs:
-                        f = network.getFeatures(req.setFilterFid(int(j))).next()
-                        #orders.append(int(f[strahlerField]))
-                        orders.append(int(f['StrahOrder']))
+                        f = network.getFeatures(QgsFeatureRequest().setFilterFid(int(j))).next()
+                        upOrder = int(f['StrahOrder'])
+                        diff = upOrder - order
+                        if diff == 1:
+                            ordersFrequency[upOrder]['Ndu'] += 1.0
+                        if diff > 1:
+                            ordersFrequency[upOrder]['Na'] += 1.0
 
-                    #orders.sort(reverse=True)
-                    diff = orders[0] - orders[1]
-                    minOrder = min([orders[0], orders[1]])
-                    if diff == 0:
-                        ordersFrequency[order]['N'] += 1.0
-                    if diff == 1:
-                        ordersFrequency[minOrder]['Ndu'] += 1.0
-                    if diff > 0:
-                        ordersFrequency[minOrder]['Na'] += 1.0
+        #~ for i in xrange(1, maxOrder + 1):
+            #~ req.setFilterExpression('"StrahOrder" = %s' % i)
+            #~ for f in network.getFeatures(req):
+                #~ order = int(f['StrahOrder'])
+                #~ upstreamArcs = f['UpArcId'].split(',') if f['UpArcId'] else []
+                #~ if len(upstreamArcs) == 0:
+                    #~ ordersFrequency[order]['N'] += 1.0
+#~
+                #~ if len(upstreamArcs) > 1:
+                    #~ orders = []
+                    #~ for j in upstreamArcs:
+                        #~ f = network.getFeatures(req.setFilterFid(int(j))).next()
+                        #~ orders.append(int(f['StrahOrder']))
+#~
+                    #~ #orders.sort(reverse=True)
+                    #~ diff = orders[0] - orders[1]
+                    #~ minOrder = min([orders[0], orders[1]])
+                    #~ if diff == 0:
+                        #~ ordersFrequency[order]['N'] += 1.0
+                    #~ if diff == 1:
+                        #~ ordersFrequency[minOrder]['Ndu'] += 1.0
+                    #~ if diff > 0:
+                        #~ ordersFrequency[minOrder]['Na'] += 1.0
 
         writerOrders = self.getOutputFromName(
             self.ORDER_FREQUENCY).getTableWriter(['order', 'N', 'NDU', 'NA'])
