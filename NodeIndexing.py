@@ -58,7 +58,6 @@ class NodeIndexing(GeoAlgorithm):
                 network.pendingFields(), 'DownNodeId', QVariant.Int, 10, 0)
         (idxUpNodeId, fieldList) = findOrCreateField(network, fieldList,
                 'UpNodeId', QVariant.Int, 10, 0)
-        network.updateFields()
 
         writer = self.getOutputFromName(self.INDEXED).getVectorWriter(
             fieldList.toList(), networkProvider.geometryType(),
