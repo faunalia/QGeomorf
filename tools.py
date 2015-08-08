@@ -3,6 +3,8 @@ from PyQt4.QtCore import QVariant
 from qgis.core import (QgsGeometry, QgsVectorLayer, QgsFeature, QgsFields,
     QgsField)
 
+from processing.tools import vector
+
 
 def makePoints(layer):
     authId = layer.crs().authid()
@@ -67,3 +69,49 @@ def arcsAadjacencyDictionary(layer):
             arcsPerNode[toNode].append(f)
 
     return arcsPerNode
+
+
+def makeHelperDictionaries(layer):
+    # Mapping between upstream node id from attribute table and  QGIS
+    # feature id. Will be used to sort features from the network table
+
+    myNetwork = dict()
+
+    # Find upstream and downstream arc ids for each arc in the stream
+    # network layer. First we generate helper arcPerNodeId dictionary
+    # with node ids as keys and lists of arc ids connected to this node
+    # as values
+    # Algorithm at pages 55-56 "Automated AGQ4Vector Watershed.pdf"
+    arcsPerNodeId = dict()
+    for f in layer.getFeatures():
+        if f['UpNodeId'] not in arcsPerNodeId:
+            arcsPerNodeId[f['UpNodeId']] = [f.id()]
+        else:
+            arcsPerNodeId[f['UpNodeId']].append(f.id())
+
+        if f['DownNodeId'] not in arcsPerNodeId:
+            arcsPerNodeId[f['DownNodeId']] = [f.id()]
+        else:
+            arcsPerNodeId[f['DownNodeId']].append(f.id())
+
+        # Also populate mapping between upstream node id and feature id
+        myNetwork[f['UpNodeId']] = f.id()
+
+    return myNetwork, arcsPerNodeId
+
+
+def findOrCreateField(layer, fieldList, fieldName, fieldType=QVariant.Double,
+        fieldLen=24, fieldPrec=15):
+    idx = layer.fieldNameIndex(fieldName)
+    if idx == -1:
+        fn = vector.createUniqueFieldName(fieldName, fieldList)
+        field = QgsField(fn, fieldType, '', fieldLen, fieldPrec)
+        idx = len(fieldList)
+        fieldList.append(field)
+
+    return (idx, fieldList)
+
+
+def findField(layer, fieldName):
+    idx = layer.fieldNameIndex(fieldName)
+    return idx

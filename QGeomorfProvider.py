@@ -8,6 +8,8 @@ from processing.core.AlgorithmProvider import AlgorithmProvider
 from processing.core.ProcessingConfig import Setting, ProcessingConfig
 
 from QGeomorf.Geomorf import Geomorf
+from QGeomorf.NodeIndexing import NodeIndexing
+from QGeomorf.ArcUpstreamDownstream import ArcUpstreamDownstream
 
 
 pluginPath = os.path.dirname(__file__)
@@ -20,7 +22,7 @@ class QGeomorfProvider(AlgorithmProvider):
 
         self.activate = True
 
-        self.alglist = [Geomorf()]
+        self.alglist = [Geomorf(), NodeIndexing(), ArcUpstreamDownstream()]
         for alg in self.alglist:
             alg.provider = self
 
