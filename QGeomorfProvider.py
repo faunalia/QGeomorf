@@ -10,6 +10,8 @@ from processing.core.ProcessingConfig import Setting, ProcessingConfig
 from QGeomorf.Geomorf import Geomorf
 from QGeomorf.NodeIndexing import NodeIndexing
 from QGeomorf.ArcUpstreamDownstream import ArcUpstreamDownstream
+from QGeomorf.StrahlerOrder import StrahlerOrder
+from QGeomorf.BifurcationRatios import BifurcationRatios
 
 
 pluginPath = os.path.dirname(__file__)
@@ -22,7 +24,7 @@ class QGeomorfProvider(AlgorithmProvider):
 
         self.activate = True
 
-        self.alglist = [Geomorf(), NodeIndexing(), ArcUpstreamDownstream()]
+        self.alglist = [Geomorf(), NodeIndexing(), ArcUpstreamDownstream(), StrahlerOrder(), BifurcationRatios()]
         for alg in self.alglist:
             alg.provider = self
 

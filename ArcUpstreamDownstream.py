@@ -70,11 +70,7 @@ class ArcUpstreamDownstream(GeoAlgorithm):
             fieldList.toList(), networkProvider.geometryType(),
             networkProvider.crs())
 
-        # Generate arc adjacency dictionary
-        # Algorithm at pages 79-80 "Automated AGQ4Vector Watershed.pdf"
-        progress.setInfo(self.tr('Generating arc adjacency dictionary...'))
-        self.arcsPerNode = arcsAadjacencyDictionary(network)
-
+        # Generate helper dictionaries
         myNetwork, arcsPerNodeId = makeHelperDictionaries(network)
 
         # Write output file
