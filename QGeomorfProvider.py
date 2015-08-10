@@ -7,7 +7,6 @@ from PyQt4.QtGui import QIcon
 from processing.core.AlgorithmProvider import AlgorithmProvider
 from processing.core.ProcessingConfig import Setting, ProcessingConfig
 
-from QGeomorf.Geomorf import Geomorf
 from QGeomorf.NodeIndexing import NodeIndexing
 from QGeomorf.ArcUpstreamDownstream import ArcUpstreamDownstream
 from QGeomorf.StrahlerOrder import StrahlerOrder
@@ -24,7 +23,7 @@ class QGeomorfProvider(AlgorithmProvider):
 
         self.activate = True
 
-        self.alglist = [Geomorf(), NodeIndexing(), ArcUpstreamDownstream(), StrahlerOrder(), BifurcationRatios()]
+        self.alglist = [NodeIndexing(), ArcUpstreamDownstream(), StrahlerOrder(), BifurcationRatios()]
         for alg in self.alglist:
             alg.provider = self
 
